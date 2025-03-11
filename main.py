@@ -4,7 +4,7 @@ from enum import Enum
 from fastapi.exceptions import RequestValidationError
 
 from app.api.endpoints import fixtures
-from app.api.endpoints.shop import categories, products
+from app.api.endpoints.shop import categories, products, tags
 from app.core.handlers import custom_request_validation_exception_handler
 from app.db.database import create_db_and_tables
 
@@ -19,6 +19,7 @@ app = FastAPI(
 app.include_router(categories.router)
 app.include_router(products.router)
 app.include_router(fixtures.router)
+app.include_router(tags.router)
 app.add_exception_handler(
     RequestValidationError, custom_request_validation_exception_handler
 )

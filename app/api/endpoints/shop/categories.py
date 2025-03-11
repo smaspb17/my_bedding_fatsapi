@@ -48,10 +48,12 @@ def get_cat_list(session: SessionDep) -> list[CategoryView]:
     status_code=201,
 )
 def create_cat(category: CategoryCreate, session: SessionDep) -> CategoryView:
-    category_exists = session.exec(
-        select(CategoryDB).where(CategoryDB.title == category.title)
-    ).first()
-    if category_exists:
+    stmt = select(exists().where(CategoryDB.title == category.title))
+    is_exists_category = session.exec(stmt).first()
+    # is_exists_category = session.exec(
+    #     select(CategoryDB).where(CategoryDB.title == category.title)
+    # ).first()
+    if is_exists_category:
         raise HTTPException(
             status_code=400,
             detail="Category is already exists. Unique constraint failed: title field",
@@ -70,12 +72,14 @@ def create_cat(category: CategoryCreate, session: SessionDep) -> CategoryView:
     response_model=CategoryView,
 )
 def update_cat(
-    cat_id: int, category: CategoryUpdate, session: SessionDep
+        cat_id: int,
+        category: CategoryUpdate,
+        session: SessionDep,
 ) -> CategoryView:
     category_db = session.get(CategoryDB, cat_id)
     if not category_db:
         raise HTTPException(
-            status_code=404, detail=f"category with id={cat_id} not found"
+            status_code=404, detail=f"Category with id={cat_id} not found"
         )
     stmt = select(
         exists().where(
@@ -108,6 +112,7 @@ def delete_cat(cat_id: int, session: SessionDep) -> CategoryDelete:
         raise HTTPException(
             status_code=404, detail=f"category with id={cat_id} not found"
         )
+    category.products.clear()
     session.delete(category)
     session.commit()
     return CategoryDelete(

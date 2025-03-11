@@ -3,7 +3,8 @@ from typing import Optional
 
 from pydantic import BaseModel, field_serializer, Field
 
-from app.db.shop.models import ProductBase
+from app.api.schemas.shop.tags import TagView
+from app.db.shop.models import ProductBase, TagDB
 
 MOSCOW_TZ = timezone(timedelta(hours=3))  # UTC+3
 
@@ -12,6 +13,7 @@ class ProductView(ProductBase):
     id: int
     created: datetime = Field(example="01.01.2025 12:00:00")
     updated: datetime = Field(example="01.01.2025 12:00:00")
+    tags: list[TagView]
 
     @field_serializer("created", "updated")
     def serialize_datetime(self, dt: datetime, _info) -> str:
@@ -34,5 +36,13 @@ class ProductUpdate(ProductBase):
 
 
 class ProductDelete(BaseModel):
-    product_id: int = Field(example='1')
-    message: str = Field(example='Product deleted successfully')
+    product_id: int = Field(example="1")
+    message: str = Field(example="Product deleted successfully")
+
+
+class TagResponse(BaseModel):
+    message: str
+    product_id: int
+    tag_id: int
+    current_tags: list[TagView]
+
