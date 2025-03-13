@@ -1,18 +1,17 @@
 from datetime import datetime, timedelta, timezone
-from typing import Optional
 
 from pydantic import BaseModel, field_serializer, Field
 
-from app.api.schemas.shop.tags import TagView
-from app.db.shop.models import ProductBase, TagDB
+from app.shop.schemas.tags import TagView
+from app.db.shop.models import ProductBase
 
 MOSCOW_TZ = timezone(timedelta(hours=3))  # UTC+3
 
 
 class ProductView(ProductBase):
     id: int
-    created: datetime = Field(example="01.01.2025 12:00:00")
-    updated: datetime = Field(example="01.01.2025 12:00:00")
+    created: datetime = Field(json_schema_extra={"example": "01.01.2025 12:00:00"})
+    updated: datetime = Field(json_schema_extra={'example': "01.01.2025 12:00:00"})
     tags: list[TagView]
 
     @field_serializer("created", "updated")
@@ -24,10 +23,11 @@ class ProductView(ProductBase):
 
 
 class ProductCreate(ProductBase):
+    # tags: list[TagView] = []
     pass
 
 
-class ProductUpdate(ProductBase):
+class ProductUpdate(BaseModel):
     category_id: int | None = None
     title: str | None = None
     description: str | None = None
@@ -36,8 +36,8 @@ class ProductUpdate(ProductBase):
 
 
 class ProductDelete(BaseModel):
-    product_id: int = Field(example="1")
-    message: str = Field(example="Product deleted successfully")
+    product_id: int = Field(json_schema_extra={"example": "1"})
+    message: str = Field(json_schema_extra={"example": "Product deleted successfully"})
 
 
 class TagResponse(BaseModel):
@@ -45,4 +45,3 @@ class TagResponse(BaseModel):
     product_id: int
     tag_id: int
     current_tags: list[TagView]
-

@@ -1,12 +1,12 @@
 from fastapi import APIRouter, HTTPException
 from sqlmodel import select, exists, and_
 
-from app.api.schemas.shop.error_schemas import (
+from app.shop.schemas.error_schemas import (
     BadRequestErrorSchema,
     NotFoundErrorSchema,
 )
-from app.api.schemas.shop.tags import TagView, TagCreate, TagUpdate
-from app.db.database import SessionDep
+from app.shop.schemas.tags import TagView, TagCreate, TagUpdate
+from app.db.database import AsyncSessionDep
 from app.db.shop.models import TagDB
 
 router = APIRouter(
@@ -25,8 +25,9 @@ router = APIRouter(
     description="Получение списка тегов",
     response_model=list[TagView],
 )
-def tag_create(session: SessionDep) -> list[TagView]:
-    tags = session.exec(select(TagDB)).all()
+async def tag_create(session: AsyncSessionDep) -> list[TagView]:
+    result = await session.execute(select(TagDB))
+    tags = result.scalars().all()
     return tags
 
 
@@ -35,19 +36,22 @@ def tag_create(session: SessionDep) -> list[TagView]:
     summary="Создание тега",
     description="Создание тега",
     response_model=TagView,
+    status_code=201,
 )
-def tag_create(tag: TagCreate, session: SessionDep) -> TagView:
-    stmt = select(exists().where(TagDB.name == tag.name))
-    is_exists = session.exec(stmt).first()
+async def tag_create(tag: TagCreate, session: AsyncSessionDep) -> TagView:
+    # stmt = select(exists().where(TagDB.name == tag.name))
+    # is_exists = session.exec(stmt).first()
+    is_exists = await session.scalar(select(exists().where(TagDB.name == tag.name)))
     if is_exists:
         raise HTTPException(
             status_code=404,
             detail="Tag is already exists. Unique constraint failed: name field",
         )
-    tag_db = TagDB(**tag.model_dump())
+    # tag_db = TagDB(**tag.model_dump())
+    tag_db = TagDB.model_validate(tag)
     session.add(tag_db)
-    session.commit()
-    session.refresh(tag_db)
+    await session.commit()
+    # session.refresh(tag_db)
     return TagView(**tag_db.model_dump())
 
 
@@ -57,26 +61,30 @@ def tag_create(tag: TagCreate, session: SessionDep) -> TagView:
     description="Частичное обновление тега",
     response_model=TagView,
 )
-def tag_update(tag_id: int, tag: TagUpdate, session: SessionDep) -> TagView:
-    tag_db = session.get(TagDB, tag_id)
+async def tag_update(tag_id: int, tag: TagUpdate, session: AsyncSessionDep) -> TagView:
+    tag_db = await session.get(TagDB, tag_id)
     if not tag_db:
         raise HTTPException(
             status_code=404,
             detail=f"Tag with id={tag_id} not found. Please check the tag ID and try again.",
         )
-    stmt = select(exists().where(and_(TagDB.name == tag.name, TagDB.id != tag_id)))
-    is_exists = session.exec(stmt).first()
+    is_exists = await session.scalar(select(exists().where(TagDB.name == tag.name, TagDB.id != tag_id)))
+    # stmt = select(exists().where(and_(TagDB.name == tag.name, TagDB.id != tag_id)))
+    # is_exists = session.exec(stmt).first()
     if is_exists:
         raise HTTPException(
             status_code=404,
             detail="Tag is already exists. Unique constraint failed: name field",
         )
-    data = tag.model_dump(exclude_unset=True).items()
-    print(f"data {data}")
-    for field, value in data:
-        setattr(tag_db, field, value)
-    session.commit()
-    session.refresh(tag_db)
+    # data = tag.model_dump(exclude_unset=True).items()
+    # for field, value in data:
+    #     setattr(tag_db, field, value)
+
+    tag_data = tag.model_dump(exclude_unset=True)
+    tag_db.sqlmodel_update(tag_data)
+
+    await session.commit()
+    # session.refresh(tag_db)
     return TagView(**tag_db.model_dump())
 
 
@@ -86,15 +94,15 @@ def tag_update(tag_id: int, tag: TagUpdate, session: SessionDep) -> TagView:
     description="Удаление тега",
     response_model=TagView,
 )
-def tag_delete(tag_id: int, session: SessionDep) -> TagView:
-    tag = session.get(TagDB, tag_id)
+async def tag_delete(tag_id: int, session: AsyncSessionDep) -> TagView:
+    tag = await session.get(TagDB, tag_id)
     if not tag:
         raise HTTPException(
             status_code=404,
             detail=f"Tag with id={tag_id} not found. Please check the tag ID and try again.",
         )
-    session.delete(tag)
-    session.commit()
+    await session.delete(tag)
+    await session.commit()
     return TagView(**tag.model_dump())
 
 

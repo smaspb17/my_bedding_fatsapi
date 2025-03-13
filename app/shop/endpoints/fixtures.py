@@ -6,10 +6,10 @@ from pathlib import Path
 from enum import Enum
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import JSONResponse
-from sqlalchemy import text
+from sqlalchemy import text, delete
 from sqlalchemy.exc import IntegrityError
 from sqlmodel import SQLModel, Session, select
-from app.db.database import get_session
+from app.db.database import get_session, AsyncSessionDep
 
 router = APIRouter(
     prefix="/fixtures",
@@ -78,7 +78,7 @@ ModelNameEnum = Enum(
     "/export/{model_name}",
     summary="🛑 Выгрузка фикстур в файл. ❗❗Сперва проверь базу данных❗❗",
 )
-def export_data(model_name: ModelNameEnum, session: Session = Depends(get_session)):
+async def export_data(model_name: ModelNameEnum, session: AsyncSessionDep):
     """
     Создание json-файла с фикстурами модели БД.
     - Выбери модель БД, из которой будут выгружены данные в одноименный json-файл.
@@ -89,7 +89,8 @@ def export_data(model_name: ModelNameEnum, session: Session = Depends(get_sessio
     if not model_db:
         raise HTTPException(status_code=400, detail="Модель не найдена")
 
-    objects = session.exec(select(model_db)).unique().all()
+    result = await session.exec(select(model_db))
+    objects = result.scalars.all()
 
     file_path = EXPORT_PATH / f"{model_name.value}.json"
     with file_path.open("w", encoding="utf-8") as f:
@@ -104,7 +105,7 @@ def export_data(model_name: ModelNameEnum, session: Session = Depends(get_sessio
 
 
 @router.post("/import/{model_name}", summary="Загрузка фикстур в базу данных")
-def import_data(model_name: ModelNameEnum, session: Session = Depends(get_session)):
+async def import_data(model_name: ModelNameEnum, session: AsyncSessionDep):
     """
     Загрузка фикстур базы данных из json-файла.
     - ❗ Перед загрузкой из файла, данные в БД из указанной модели будут удалены.
@@ -125,11 +126,17 @@ def import_data(model_name: ModelNameEnum, session: Session = Depends(get_sessio
 
     # Очистить таблицу перед загрузкой данных
     try:
-        session.execute(text("PRAGMA foreign_keys = OFF;"))  # Отключаем проверки FK
-        session.query(model_db).delete()
-        session.commit()
+        # await session.execute(text("PRAGMA foreign_keys = OFF;"))  # OFF check FK in sqlite
+        await session.execute(
+            text("SET CONSTRAINTS ALL DEFERRED;")
+        )  # OFF check FK in sqlite
+        await session.execute(
+            text(f'TRUNCATE TABLE "{model_db.__tablename__}" RESTART IDENTITY CASCADE;')
+        )
+        # await session.execute(delete(model_db))
+        await session.commit()
     except Exception as e:
-        session.rollback()
+        await session.rollback()
         raise HTTPException(
             status_code=500, detail=f"Ошибка при очистке таблицы: {str(e)}"
         )
@@ -147,13 +154,15 @@ def import_data(model_name: ModelNameEnum, session: Session = Depends(get_sessio
 
     try:
         session.add_all(objects)
-        session.commit()
+        await session.commit()
     except IntegrityError as e:
-        session.rollback()
+        await session.rollback()
         return JSONResponse(
             status_code=400, content={"detail": "Integrity error", "error": str(e)}
         )
-    finally:
-        session.execute(text("PRAGMA foreign_keys = ON;"))  # Включаем проверки FK обратно
+    # finally:
+    #     await session.execute(
+    #         text("PRAGMA foreign_keys = ON;")
+    #     )  # Включаем проверки FK обратно
 
     return {"message": f"Данные из {file_path} успешно загружены в базу"}

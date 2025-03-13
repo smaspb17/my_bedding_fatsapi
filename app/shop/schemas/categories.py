@@ -12,8 +12,8 @@ class CategoryView(CategoryBase):
 
 
 class CategoryDelete(BaseModel):
-    id: int = Field(example='1')
-    message: str = Field(example='Object deleted successfully')
+    id: int = Field(json_schema_extra={'example': '1'})
+    message: str = Field(json_schema_extra={'example': 'Object deleted successfully'})
 
 
 class CategoryUpdate(CategoryBase):

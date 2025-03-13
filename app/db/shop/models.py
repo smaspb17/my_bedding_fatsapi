@@ -2,6 +2,7 @@ from datetime import datetime, timezone
 from typing import Optional
 
 from sqlmodel import Field, SQLModel, Relationship, Column, TIMESTAMP
+from sqlalchemy import Column, Integer
 
 
 class ProductTagJoin(SQLModel, table=True):
@@ -29,7 +30,11 @@ class CategoryBase(SQLModel):
 
 class CategoryDB(CategoryBase, table=True):
     __tablename__ = "category"
-    id: int | None = Field(default=None, primary_key=True)
+    id: int = Field(
+        default=None,
+        primary_key=True,
+        sa_column_kwargs={"autoincrement": True}
+    )
     products: list["ProductDB"] = Relationship(
         back_populates="category",
         passive_deletes="all",
@@ -41,7 +46,7 @@ class ProductBase(SQLModel):
     category_id: int | None = Field(
         default=None, foreign_key="category.id", ondelete="SET NULL"
     )
-    title: str = Field(max_length=100, unique=True)
+    title: str = Field(max_length=100, unique=True, index=True)
     description: str
     care: str
     is_available: Optional[bool] = Field(default=True)
@@ -67,7 +72,6 @@ class ProductDB(ProductBase, table=True):
         back_populates="products",
         link_model=ProductTagJoin,
         # cascade="all, delete-orphan",  # Добавлено каскадное удаление
-        # cascade="all, delete-orphan",
     )
     # # lazy = "joined" или "subquery" - установка жадной загрузки во всех запросах
     # # для session.get() или product.tags

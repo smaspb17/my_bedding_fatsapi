@@ -1,27 +1,25 @@
 from datetime import timezone, datetime
 
-from fastapi import APIRouter, HTTPException, Depends
-from fastapi.responses import JSONResponse
-from sqlalchemy.orm import selectinload, joinedload
+from fastapi import APIRouter, HTTPException, Query
+from sqlalchemy.orm import selectinload
 from sqlmodel import (
-    Session,
     select,
     exists,
     and_,
 )
 
-from app.api.schemas.shop.error_schemas import (
+from app.shop.schemas.error_schemas import (
     NotFoundErrorSchema,
     BadRequestErrorSchema,
 )
-from app.api.schemas.shop.products import (
+from app.shop.schemas.products import (
     ProductView,
     ProductCreate,
     ProductUpdate,
     ProductDelete,
     TagResponse,
 )
-from app.db.database import SessionDep
+from app.db.database import AsyncSessionDep
 from app.db.shop.models import ProductDB, CategoryDB, TagDB, ProductTagJoin
 
 router = APIRouter(
@@ -40,10 +38,10 @@ router = APIRouter(
     description="Получение списка всех товаров",
     response_model=list[ProductView],
 )
-def product_list(
-    session: SessionDep,
+async def product_list(
+    session: AsyncSessionDep,
     page: int = 1,
-    per_page: int = 5,
+    per_page: int = Query(default=5, le=10),
 ) -> list[ProductView]:
     # пагинация + жадная загрузка
     stmt = (
@@ -52,7 +50,11 @@ def product_list(
         .offset((page - 1) * per_page)
         .limit(per_page)
     )
-    products = session.exec(stmt).unique().all()
+    result = await session.execute(stmt)
+    products = result.scalars().all()
+    print(f'products {products}')
+    for product in products:
+        print(f"Product: {product.title}, Tags: {[tag.name for tag in product.tags]}")
     return products
 
 
@@ -62,13 +64,13 @@ def product_list(
     description="Получение списка товаров по выбранной категориям",
     response_model=list[ProductView],
 )
-def product_list_by_cat(
-    session: SessionDep,
+async def product_list_by_cat(
+    session: AsyncSessionDep,
     cat_id: int,
     page: int = 1,
     per_page: int = 5,
 ) -> list[ProductView]:
-    category = session.get(CategoryDB, cat_id)
+    category = await session.get(CategoryDB, cat_id)
     if not category:
         raise HTTPException(
             status_code=404, detail=f"Category with id={cat_id} not found"
@@ -84,9 +86,8 @@ def product_list_by_cat(
     # # ленивая загрузка через relationship -> проблема N+1
     # category = session.get(CategoryDB, cat_id)
     # products = category.products
-    products = session.exec(stmt).unique().all()
-    # print(f'products {products}')
-
+    result = await session.execute(stmt)
+    products = result.scalars().all()
     return products
 
 
@@ -96,19 +97,19 @@ def product_list_by_cat(
     description="Получение товара",
     response_model=ProductView,
 )
-def product_detail(product_id: int, session: SessionDep) -> ProductView:
+async def product_detail(product_id: int, session: AsyncSessionDep) -> ProductView:
     stmt = (
         select(ProductDB)
         .options(selectinload(ProductDB.tags))
         .where(ProductDB.id == product_id)
     )
-    product = session.exec(stmt).first()
+    result = await session.execute(stmt)
+    product = result.scalar()
     # product = session.get(ProductDB, product_id)  # N+1 - ленивая загрузка
     if not product:
         raise HTTPException(
             status_code=404, detail=f"product with id={product_id} not found"
         )
-    print(f'Product_tags: {product.tags}')
     return product
 
 
@@ -122,27 +123,44 @@ def product_detail(product_id: int, session: SessionDep) -> ProductView:
         201: {"model": ProductView, "description": "Product successfully created"},
     },
 )
-def product_create(product: ProductCreate, session: SessionDep) -> ProductView:
+async def product_create(
+    product: ProductCreate, session: AsyncSessionDep
+) -> ProductView:
     cat_id = product.category_id
-    stmt = select(exists().where(CategoryDB.id == cat_id))
-    is_exists_category = session.exec(stmt).first()
+
+    # stmt = select(exists().where(CategoryDB.id == cat_id))
+    # result = await session.execute(stmt)
+    # is_exists_category = result.scalar()
+    is_exists_category = await session.scalar(
+        select(exists().where(CategoryDB.id == cat_id))
+    )
     if not is_exists_category:
         raise HTTPException(
             status_code=404, detail=f"Category with id={cat_id} not found"
         )
-    stmt = select(exists().where(ProductDB.title == product.title))
-    is_exists_product = session.exec(stmt).first()
-    # is_exists_product = session.exec(
+
+    # is_exists_product = session.execute(
     #     select(ProductDB).where(ProductDB.title == product.title)
     # ).first()
+
+    # stmt = select(exists().where(ProductDB.title == product.title))
+    # result = await session.execute(stmt)
+    # is_exists_product = result.scalar()
+
+    is_exists_product = await session.scalar(
+        select(exists().where(ProductDB.title == product.title))
+    )
     if is_exists_product:
         raise HTTPException(
             status_code=400, detail="Product with that title already exists."
         )
-    product_db = ProductDB(**product.model_dump())
+    # product_db = ProductDB(**product.model_dump())
+    # product_db = ProductDB(**product.dict())
+    product_db = ProductDB.model_validate(product)
     session.add(product_db)
-    session.commit()
-    session.refresh(product_db)
+    product_db.tags = []
+    await session.commit()
+    # await session.refresh(product_db, ["tags"])  # expire_on_commit=False
     return product_db
 
 
@@ -152,17 +170,16 @@ def product_create(product: ProductCreate, session: SessionDep) -> ProductView:
     description="Частичное изменение товара",
     response_model=ProductView,
 )
-def product_update(
-        product_id: int,
-        product: ProductUpdate,
-        session: SessionDep
+async def product_update(
+    product_id: int, product: ProductUpdate, session: AsyncSessionDep
 ) -> ProductView:
     stmt = (
         select(ProductDB)
         .options(selectinload(ProductDB.tags))
         .where(ProductDB.id == product_id)
     )
-    product_db = session.exec(stmt).first()
+    result = await session.execute(stmt)
+    product_db = result.scalar()
     # product_db = session.get(ProductDB, product_id)  # N+1 - ленивая загрузка
     if not product_db:
         raise HTTPException(
@@ -170,15 +187,23 @@ def product_update(
             detail=f"Product with id={product_id} not found. Please check the product ID and try "
             f"again.",
         )
-    stmt = select(
-        exists().where(
-            and_(ProductDB.title == product.title, ProductDB.id != product_id)
-        )
-    )
-    is_exists = session.exec(stmt).first()
-    # is_exists = session.exec(
+    # stmt = select(
+    #     exists().where(
+    #         and_(ProductDB.title == product.title, ProductDB.id != product_id)
+    #     )
+    # )
+    # is_exists = await session.execute(stmt).first()
+
+    # is_exists = session.execute(
     #     select(ProductDB).where((ProductDB.title == product.title) & (ProductDB.id != product_id))
     # ).first()
+
+    is_exists = await session.scalar(
+        select(
+            exists().where(ProductDB.title == product.title, ProductDB.id != product_id)
+        )
+    )
+
     if is_exists:
         raise HTTPException(
             status_code=400,
@@ -187,9 +212,13 @@ def product_update(
     data = product.model_dump(exclude_unset=True).items()
     for field, value in data:
         setattr(product_db, field, value)
+
+    # product_data = product.model_dump(exclude_unset=True)
+    # product_db.sqlmodel_update(product_data)
+
     product_db.updated = datetime.now(timezone.utc)
-    session.commit()
-    session.refresh(product_db)
+    await session.commit()
+    # await session.refresh(product_db)  # expire_on_commit=False
     return product_db
 
 
@@ -199,17 +228,17 @@ def product_update(
     description="Удаление товара",
     response_model=ProductDelete,
 )
-def product_delete(
+async def product_delete(
     product_id: int,
-    session: SessionDep,
+    session: AsyncSessionDep,
 ):
-    product = session.get(ProductDB, product_id)
+    product = await session.get(ProductDB, product_id)
     if not product:
         raise HTTPException(
             status_code=404, detail=f"Product with id={product_id} not found"
         )
-    session.delete(product)
-    session.commit()
+    await session.delete(product)
+    await session.commit()
     return ProductDelete(product_id=product.id, message="Product deleted successfully")
 
 
@@ -218,31 +247,26 @@ def product_delete(
     summary="Добавление тега к товару",
     description="Добавление тега к товару",
     response_model=TagResponse,
-    status_code=200,
+    status_code=201,
 )
-def add_tag(product_id: int, tag_id: int, session: SessionDep):
-    stmt = (
-        select(ProductDB)
-        .options(selectinload(ProductDB.tags))
-        .where(ProductDB.id == product_id)
+async def add_tag(product_id: int, tag_id: int, session: AsyncSessionDep):
+    product = await session.get(
+        ProductDB, product_id, options=[selectinload(ProductDB.tags)]
     )
-    product = session.exec(stmt).first()
-    # product = session.get(ProductDB, product_id) # N+1 - ленивая загрузка
-    tag = session.get(TagDB, tag_id)
+    tag = await session.get(TagDB, tag_id)
     if not product:
         raise HTTPException(
             status_code=400, detail=f"Product with id={product_id} not found"
         )
     if not tag:
         raise HTTPException(status_code=400, detail=f"Tag with id={tag_id} not found")
-    stmt = select(
-        exists().where(
-            and_(
+    is_exists = await session.scalar(
+        select(
+            exists().where(
                 ProductTagJoin.product_id == product_id, ProductTagJoin.tag_id == tag_id
             )
         )
     )
-    is_exists = session.exec(stmt).first()
     if is_exists:
         raise HTTPException(
             status_code=400, detail="Tag is already assigned to this product"
@@ -250,7 +274,8 @@ def add_tag(product_id: int, tag_id: int, session: SessionDep):
     # product.tags.append(tag) #  N+1 если не lazy="joined"
     product_tag = ProductTagJoin(product_id=product_id, tag_id=tag_id)
     session.add(product_tag)
-    session.commit()
+    await session.commit()
+    product.tags.append(tag)
     return {
         "message": "Tag added successfully",
         "product_id": product_id,
@@ -266,30 +291,32 @@ def add_tag(product_id: int, tag_id: int, session: SessionDep):
     response_model=TagResponse,
     status_code=200,
 )
-def delete_tag(product_id: int, tag_id: int, session: SessionDep):
-    stmt = (
-        select(ProductTagJoin)
-        .where(and_(ProductTagJoin.product_id == product_id,
-                    ProductTagJoin.tag_id == tag_id))
+async def delete_tag(product_id: int, tag_id: int, session: AsyncSessionDep):
+    stmt = select(ProductTagJoin).where(
+        and_(ProductTagJoin.product_id == product_id, ProductTagJoin.tag_id == tag_id)
     )
-    product_tag = session.exec(stmt).first()
+    result = await session.execute(stmt)
+    product_tag = result.scalar()
     if not product_tag:
         raise HTTPException(
             status_code=404, detail="Tag is not assigned to this product"
         )
     # product.tags.remove(tag)  # N+1 если нет lazy="joined"
-    session.delete(product_tag)
-    session.commit()
-    stmt = (
-        select(ProductDB)
-        .options(selectinload(ProductDB.tags))
-        .where(ProductDB.id == product_id)
-    )
-    product_tags = session.exec(stmt).first().tags
-    # product_tags = session.get(ProductDB, product_id).tags  # N+1 ленивая загрузка
+    await session.delete(product_tag)
+    await session.commit()
+    # stmt = (
+    #     select(ProductDB)
+    #     .options(selectinload(ProductDB.tags))
+    #     .where(ProductDB.id == product_id)
+    # )
+    # product_tags = session.execute(stmt).first().tags
+    product = await session.get(
+        ProductDB, product_id, options=[selectinload(ProductDB.tags)]
+    )  # N+1 ленивая
+    # загрузка
     return {
         "message": "Tag deleted successfully",
         "product_id": product_id,
         "tag_id": tag_id,
-        "current_tags": [tag.model_dump() for tag in product_tags],
+        "current_tags": [tag.model_dump() for tag in product.tags],
     }
