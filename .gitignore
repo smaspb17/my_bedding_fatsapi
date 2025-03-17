@@ -173,3 +173,5 @@ cython_debug/
 /app/core/security.py
 /database.db
 /app/core/config.py
+/migrations/versions/
+/media/

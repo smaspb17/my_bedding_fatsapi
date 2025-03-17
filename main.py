@@ -5,15 +5,19 @@ from enum import Enum
 
 from fastapi.exceptions import RequestValidationError
 
-from app.shop.endpoints import categories, products, tags, fixtures
+from app.shop.endpoints import categories, products, tags, images
+from app.db import fixtures
 from app.core.handlers import (
-    custom_request_validation_exception_handler, )
-from app.db.database import create_db_and_tables
+    custom_request_validation_exception_handler,
+)
+from app.db.database import create_db_and_tables, engine
+from app.admin.admin_config import init_admin
 
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
-    await create_db_and_tables()
+    # await create_db_and_tables()  # НЕ НУЖЕН, использую alembic
+    init_admin(_app, engine)  # init админки
     yield
 
 
@@ -30,15 +34,10 @@ app.include_router(categories.router)
 app.include_router(products.router)
 app.include_router(fixtures.router)
 app.include_router(tags.router)
+app.include_router(images.router)
 app.add_exception_handler(
     RequestValidationError, custom_request_validation_exception_handler
 )
-# app.add_exception_handler(Exception, global_exception_handler)
-
-
-# @app.on_event("startup")
-# def on_startup():
-#     create_db_and_tables()
 
 
 class Tags(Enum):

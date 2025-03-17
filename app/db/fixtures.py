@@ -7,6 +7,7 @@ from enum import Enum
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import JSONResponse
 from sqlalchemy import text, delete
+from sqlalchemy.orm import DeclarativeBase
 from sqlalchemy.exc import IntegrityError
 from sqlmodel import SQLModel, Session, select
 from app.db.database import get_session, AsyncSessionDep
@@ -19,10 +20,10 @@ router = APIRouter(
 EXPORT_PATH = Path(r"D:\Интернет-магазин\FastAPI\fixtures")
 EXPORT_PATH.mkdir(parents=True, exist_ok=True)  # Создаём папку, если её нет
 
-# Список модулей, в которых хранятся модели
+# Список моделей в указанных файлах
 MODEL_MODULES = [
-    "app.db.shop.models",
-    # "app.db.order .models",
+    "app.db.models.shop",
+    "app.db.models.users",
 ]
 
 # Кеш списка моделей (обновляется только при изменении структуры БД)
@@ -42,10 +43,11 @@ def discover_models():
                 if (
                     inspect.isclass(obj)
                     and hasattr(obj, "__table__")
-                    and issubclass(obj, SQLModel)
+                    and (issubclass(obj, SQLModel)
+                         or issubclass(obj, DeclarativeBase))
                 ):
                     models_dict[name.lower()] = (
-                        obj  # Сохраняем в формате { "productdb": ProductDB }
+                        obj  # Сохраняем в формате { "Product": Product }
                     )
         except Exception as e:
             print(f"Ошибка при загрузке модуля {module_path}: {e}")
@@ -89,7 +91,7 @@ async def export_data(model_name: ModelNameEnum, session: AsyncSessionDep):
     if not model_db:
         raise HTTPException(status_code=400, detail="Модель не найдена")
 
-    result = await session.exec(select(model_db))
+    result = await session.execute(select(model_db))
     objects = result.scalars.all()
 
     file_path = EXPORT_PATH / f"{model_name.value}.json"
@@ -160,9 +162,38 @@ async def import_data(model_name: ModelNameEnum, session: AsyncSessionDep):
         return JSONResponse(
             status_code=400, content={"detail": "Integrity error", "error": str(e)}
         )
-    # finally:
-    #     await session.execute(
-    #         text("PRAGMA foreign_keys = ON;")
-    #     )  # Включаем проверки FK обратно
+    # Обновить последовательность для поля id
+    try:
+        column_check = await session.execute(
+            text(
+                f"""
+                    SELECT column_name 
+                    FROM information_schema.columns 
+                    WHERE table_name = '{model_db.__tablename__}' AND column_name = 'id';
+                    """
+            )
+        )
+        has_id_column = column_check.scalar() is not None
+
+        if has_id_column:
+            await session.execute(
+                text(
+                    f"""
+                        SELECT setval(
+                        pg_get_serial_sequence('{model_db.__tablename__}', 'id'), 
+                        (SELECT COALESCE(MAX(id), 0) FROM {model_db.__tablename__}) + 1,
+                        false
+                    );
+                    """
+                )
+            )
+            await session.commit()
+
+    except Exception as e:
+        await session.rollback()
+        raise HTTPException(
+            status_code=500,
+            detail=f"Ошибка при обновлении последовательности: {str(e)}",
+        )
 
     return {"message": f"Данные из {file_path} успешно загружены в базу"}

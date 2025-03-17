@@ -1,5 +1,5 @@
 from fastapi import APIRouter, HTTPException
-from sqlmodel import select, exists, and_
+from sqlmodel import select, exists
 
 from app.shop.schemas.categories import (
     CategoryView,
@@ -12,7 +12,7 @@ from app.shop.schemas.error_schemas import (
     BadRequestErrorSchema,
 )
 from app.db.database import AsyncSessionDep
-from app.db.shop.models import CategoryDB
+from app.db.models.shop import Category
 
 router = APIRouter(
     prefix="/catalog",
@@ -31,7 +31,7 @@ router = APIRouter(
     response_model=list[CategoryView],
 )
 async def get_category_list(session: AsyncSessionDep) -> list[CategoryView]:
-    result = await session.execute(select(CategoryDB))
+    result = await session.execute(select(Category))
     return result.scalars().all()
 
 
@@ -48,14 +48,14 @@ async def get_category_list(session: AsyncSessionDep) -> list[CategoryView]:
 async def category_create(
     category: CategoryCreate, session: AsyncSessionDep
 ) -> CategoryView:
-    is_exists_category = await session.scalar(select(exists().where(CategoryDB.title == category.title)))
+    is_exists_category = await session.scalar(select(exists().where(Category.title == category.title)))
 
-    # stmt = select(exists().where(CategoryDB.title == category.title))
+    # stmt = select(exists().where(Category.title == category.title))
     # result = await session.execute(stmt)
     # is_exists_category = result.scalars().first()
 
     # is_exists_category = session.execute(
-    #     select(CategoryDB).where(CategoryDB.title == category.title)
+    #     select(Category).where(Category.title == category.title)
     # ).first()
 
     if is_exists_category:
@@ -63,8 +63,8 @@ async def category_create(
             status_code=400,
             detail="Category is already exists. Unique constraint failed: title field",
         )
-    # category_db = CategoryDB(**category.model_dump())  # Создаем объект БД
-    category_db = CategoryDB.model_validate(category)  # Создаем объект БД
+    category_db = Category(**category.model_dump())  # Создаем объект БД
+    # category_db = Category.model_validate(category)  # Есть только в SQLModel
     session.add(category_db)
     await session.commit()
     # session.refresh(category_db)  # expire_on_commit=False
@@ -82,21 +82,21 @@ async def category_update(
     category: CategoryUpdate,
     session: AsyncSessionDep,
 ) -> CategoryView:
-    category_db = await session.get(CategoryDB, cat_id)
+    category_db = await session.get(Category, cat_id)
     if not category_db:
         raise HTTPException(
             status_code=404, detail=f"Category with id={cat_id} not found"
         )
     # stmt = select(
     #     exists().where(
-    #         and_(CategoryDB.title == category.title, CategoryDB.id != cat_id)
+    #         and_(Category.title == category.title, Category.id != cat_id)
     #     )
     # )
     # result = await session.execute(stmt)
     # is_exists = result.scalars().first()
     is_exists = await session.scalar(
         select(
-            exists().where(CategoryDB.title == category.title, CategoryDB.id != cat_id)
+            exists().where(Category.title == category.title, Category.id != cat_id)
         )
     )
     if is_exists:
@@ -123,7 +123,7 @@ async def category_update(
     response_model=CategoryDelete,
 )
 async def category_delete(cat_id: int, session: AsyncSessionDep) -> CategoryDelete:
-    result = await session.execute(select(CategoryDB).where(CategoryDB.id == cat_id))
+    result = await session.execute(select(Category).where(Category.id == cat_id))
     category = result.scalar()
     if not category:
         raise HTTPException(

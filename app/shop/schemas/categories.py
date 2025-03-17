@@ -1,6 +1,9 @@
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, Field
 
-from app.db.shop.models import CategoryBase
+
+class CategoryBase(BaseModel):
+    title: str = Field(max_length=100, unique=True)
+    description: str | None = None
 
 
 class CategoryCreate(CategoryBase):

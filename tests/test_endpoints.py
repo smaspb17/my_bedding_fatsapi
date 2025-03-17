@@ -4,7 +4,7 @@ from sqlmodel import Session, create_engine, SQLModel, text
 from sqlmodel.pool import StaticPool
 
 from app.db.database import get_session
-from app.db.shop.models import CategoryDB
+from app.db.models.shop import Category
 from main import app
 
 
@@ -55,8 +55,8 @@ def test_not_found_error(client: TestClient):
 
 
 def test_get_category_list_success(session: Session, client: TestClient):
-    cat1 = CategoryDB(title="Тестовый1", description="Тестовый1")
-    cat2 = CategoryDB(title="Тестовый2", description="Тестовый2")
+    cat1 = Category(title="Тестовый1", description="Тестовый1")
+    cat2 = Category(title="Тестовый2", description="Тестовый2")
     session.add_all([cat1, cat2])
     session.commit()
     response = client.get("/catalog")

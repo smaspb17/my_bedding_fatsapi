@@ -1,5 +1,5 @@
 from fastapi import APIRouter, HTTPException
-from sqlmodel import select, exists, and_
+from sqlmodel import select, exists
 
 from app.shop.schemas.error_schemas import (
     BadRequestErrorSchema,
@@ -7,7 +7,7 @@ from app.shop.schemas.error_schemas import (
 )
 from app.shop.schemas.tags import TagView, TagCreate, TagUpdate
 from app.db.database import AsyncSessionDep
-from app.db.shop.models import TagDB
+from app.db.models.shop import Tag
 
 router = APIRouter(
     prefix="/tags",
@@ -26,7 +26,7 @@ router = APIRouter(
     response_model=list[TagView],
 )
 async def tag_create(session: AsyncSessionDep) -> list[TagView]:
-    result = await session.execute(select(TagDB))
+    result = await session.execute(select(Tag))
     tags = result.scalars().all()
     return tags
 
@@ -39,20 +39,20 @@ async def tag_create(session: AsyncSessionDep) -> list[TagView]:
     status_code=201,
 )
 async def tag_create(tag: TagCreate, session: AsyncSessionDep) -> TagView:
-    # stmt = select(exists().where(TagDB.name == tag.name))
+    # stmt = select(exists().where(Tag.name == tag.name))
     # is_exists = session.exec(stmt).first()
-    is_exists = await session.scalar(select(exists().where(TagDB.name == tag.name)))
+    is_exists = await session.scalar(select(exists().where(Tag.name == tag.name)))
     if is_exists:
         raise HTTPException(
             status_code=404,
             detail="Tag is already exists. Unique constraint failed: name field",
         )
-    # tag_db = TagDB(**tag.model_dump())
-    tag_db = TagDB.model_validate(tag)
+    # tag_db = Tag.model_validate(tag)
+    tag_db = Tag(**tag.model_dump())
     session.add(tag_db)
     await session.commit()
     # session.refresh(tag_db)
-    return TagView(**tag_db.model_dump())
+    return TagView.from_orm(tag_db)
 
 
 @router.patch(
@@ -62,15 +62,13 @@ async def tag_create(tag: TagCreate, session: AsyncSessionDep) -> TagView:
     response_model=TagView,
 )
 async def tag_update(tag_id: int, tag: TagUpdate, session: AsyncSessionDep) -> TagView:
-    tag_db = await session.get(TagDB, tag_id)
+    tag_db = await session.get(Tag, tag_id)
     if not tag_db:
         raise HTTPException(
             status_code=404,
             detail=f"Tag with id={tag_id} not found. Please check the tag ID and try again.",
         )
-    is_exists = await session.scalar(select(exists().where(TagDB.name == tag.name, TagDB.id != tag_id)))
-    # stmt = select(exists().where(and_(TagDB.name == tag.name, TagDB.id != tag_id)))
-    # is_exists = session.exec(stmt).first()
+    is_exists = await session.scalar(select(exists().where(Tag.name == tag.name, Tag.id != tag_id)))
     if is_exists:
         raise HTTPException(
             status_code=404,
@@ -80,12 +78,12 @@ async def tag_update(tag_id: int, tag: TagUpdate, session: AsyncSessionDep) -> T
     # for field, value in data:
     #     setattr(tag_db, field, value)
 
-    tag_data = tag.model_dump(exclude_unset=True)
-    tag_db.sqlmodel_update(tag_data)
-
+    tag_data = tag.model_dump(exclude_unset=True).items()
+    for field, value in tag_data:
+        setattr(tag_db, field, value)
     await session.commit()
     # session.refresh(tag_db)
-    return TagView(**tag_db.model_dump())
+    return TagView.from_orm(tag_db)
 
 
 @router.delete(
@@ -95,7 +93,7 @@ async def tag_update(tag_id: int, tag: TagUpdate, session: AsyncSessionDep) -> T
     response_model=TagView,
 )
 async def tag_delete(tag_id: int, session: AsyncSessionDep) -> TagView:
-    tag = await session.get(TagDB, tag_id)
+    tag = await session.get(Tag, tag_id)
     if not tag:
         raise HTTPException(
             status_code=404,
@@ -103,7 +101,7 @@ async def tag_delete(tag_id: int, session: AsyncSessionDep) -> TagView:
         )
     await session.delete(tag)
     await session.commit()
-    return TagView(**tag.model_dump())
+    return TagView.from_orm(tag)
 
 
 
