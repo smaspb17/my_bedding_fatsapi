@@ -2,7 +2,7 @@
 
 from sqladmin import Admin, ModelView
 
-from app.db.models.shop import Category, Tag, Product
+from app.db.models.shop import Category, Tag, Product, ProductImage
 
 # from app.db.database import engine
 from app.db.models.users import User
@@ -63,9 +63,20 @@ class TagAdmin(ModelView, model=Tag):
     can_view_details = True
 
 
+class ProductImageAdmin(ModelView, model=ProductImage):
+    name = "Изображение товара"
+    name_plural = "Изображения товаров"
+    column_list = [ProductImage.id, ProductImage.product_id, ProductImage.image_path]  # Колонки для отображения
+    can_create = True
+    can_edit = True
+    can_delete = True
+    can_view_details = True
+
+
 def init_admin(app, engine):
     admin = Admin(app, engine)
     admin.add_view(UserAdmin)
     admin.add_view(CategoryAdmin)
     admin.add_view(ProductAdmin)
     admin.add_view(TagAdmin)
+    admin.add_view(ProductImageAdmin)

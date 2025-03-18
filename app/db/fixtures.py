@@ -32,7 +32,6 @@ CACHED_MODELS = {}
 
 def discover_models():
     """Функция ищет все модели с __table__ во всех модулях из MODEL_MODULES."""
-    print("Вызов функции discover_models - поиск списка моделей БД")
     global CACHED_MODELS
     models_dict = {}
 
