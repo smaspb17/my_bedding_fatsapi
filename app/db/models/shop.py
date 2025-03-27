@@ -67,12 +67,6 @@ class ProductImage(Base):
     product: Mapped['Product'] = relationship(back_populates='images')
 
 
-
-
-
-
-
-
 # class ProductTagJoin(SQLModel, table=True):
 #     __tablename__ = "product_tag_join"
 #     product_id: int = Field(foreign_key="product.id", primary_key=True)
