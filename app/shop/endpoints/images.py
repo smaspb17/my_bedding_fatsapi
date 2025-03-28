@@ -8,6 +8,7 @@ import aiofiles
 from aiohttp import ClientError
 
 from fastapi import UploadFile, File, HTTPException, APIRouter
+from fastapi_cache.decorator import cache
 from markdown_it.rules_inline import image
 from sqlalchemy import select, exists, delete, and_
 from sqlalchemy.orm import joinedload
@@ -38,6 +39,7 @@ BASE_FOLDER = Path(__file__).parent.parent.parent.parent / "media/products"
     description="Получить все изображения товара",
     response_model=list[ImageView],
 )
+@cache(expire=60)
 async def download_product_images(
     session: AsyncSessionDep,
     product_id: int,

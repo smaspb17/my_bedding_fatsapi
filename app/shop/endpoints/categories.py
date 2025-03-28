@@ -1,4 +1,5 @@
 from fastapi import APIRouter, HTTPException
+from fastapi_cache.decorator import cache
 from sqlmodel import select, exists
 
 from app.shop.schemas.categories import (
@@ -30,6 +31,7 @@ router = APIRouter(
     description="Получение списка категорий товаров",
     response_model=list[CategoryView],
 )
+@cache(expire=60)
 async def get_category_list(session: AsyncSessionDep) -> list[CategoryView]:
     result = await session.execute(select(Category))
     return result.scalars().all()

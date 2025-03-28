@@ -1,4 +1,5 @@
 from fastapi import APIRouter, HTTPException
+from fastapi_cache.decorator import cache
 from sqlmodel import select, exists
 
 from app.shop.schemas.error_schemas import (
@@ -25,6 +26,7 @@ router = APIRouter(
     description="Получение списка тегов",
     response_model=list[TagView],
 )
+@cache(expire=60)
 async def tag_create(session: AsyncSessionDep) -> list[TagView]:
     result = await session.execute(select(Tag))
     tags = result.scalars().all()

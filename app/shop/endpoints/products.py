@@ -1,6 +1,8 @@
+import asyncio
 from datetime import timezone, datetime, UTC
 
 from fastapi import APIRouter, HTTPException, Query
+from fastapi_cache.decorator import cache
 from sqlalchemy.orm import selectinload, joinedload
 from sqlmodel import (
     select,
@@ -40,6 +42,7 @@ router = APIRouter(
     description="Получение списка всех товаров",
     response_model=list[ProductView],
 )
+@cache(expire=30)
 async def product_list(
     session: AsyncSessionDep,
     page: int = 1,
@@ -55,6 +58,7 @@ async def product_list(
     )
     result = await session.execute(stmt)
     products = result.scalars().unique().all()
+    await asyncio.sleep(3)
     return [ProductView.model_validate(product) for product in products]
 
 
@@ -64,6 +68,7 @@ async def product_list(
     description="Получение списка товаров по выбранной категориям",
     response_model=list[ProductView],
 )
+@cache(expire=60)
 async def product_list_by_cat(
     session: AsyncSessionDep,
     cat_id: int,
@@ -89,6 +94,7 @@ async def product_list_by_cat(
     # products = category.products
     result = await session.execute(stmt)
     products = result.scalars().unique().all()
+    await asyncio.sleep(3)
     return [ProductView.model_validate(product) for product in products]
 
 
@@ -98,6 +104,7 @@ async def product_list_by_cat(
     description="Получение товара",
     response_model=ProductView,
 )
+@cache(expire=60)
 async def product_detail(product_id: int, session: AsyncSessionDep) -> ProductView:
     stmt = (
         select(Product)
@@ -112,6 +119,7 @@ async def product_detail(product_id: int, session: AsyncSessionDep) -> ProductVi
         raise HTTPException(
             status_code=404, detail=f"product with id={product_id} not found"
         )
+    await asyncio.sleep(3)
     return ProductView.model_validate(product)
 
 
