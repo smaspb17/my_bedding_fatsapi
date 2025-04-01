@@ -1,6 +1,6 @@
 from datetime import datetime, UTC, timedelta
 from typing import Annotated
-
+from redis.asyncio import Redis
 from jwt import InvalidTokenError
 from pydantic import ValidationError
 from redis import asyncio as aioredis
@@ -45,7 +45,10 @@ async def get_blacklist_tokens_redis():
     return blacklist_tokens_redis
 
 
-async def is_token_blacklisted(token: str, redis=Depends(get_blacklist_tokens_redis)):
+async def is_token_blacklisted(
+        token: str,
+        redis: Annotated[Redis, Depends(get_blacklist_tokens_redis)]
+):
     """Проверка, есть ли токен в чёрном списке"""
     return await redis.exists(f"blacklist:{token}")
 
@@ -87,37 +90,6 @@ async def authenticate_user(session: AsyncSessionDep, email: str, password: str)
     if not verify_password(password, user.hashed_password):
         return False
     return user
-
-
-async def get_user(session: AsyncSessionDep, email: str) -> User:
-    """Получение пользователя из БД"""
-    query = select(User).where(User.email == email)
-    user_db = await session.scalar(query)
-    if not user_db:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Пользователь с таким email не найден",
-        )
-    return user_db
-
-
-async def get_current_user(
-    session: AsyncSessionDep,
-    token_data: Annotated[TokenData | None, Depends(has_permissions)] = None,
-):
-    """Получение текущего пользователя по токену"""
-    if not token_data:
-        return None
-    try:
-        user = await get_user(session, email=token_data.email)
-        if not user.is_active:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Пользователь не активирован",
-            )
-        return user
-    except HTTPException:
-        return None
 
 
 async def has_permissions(
@@ -163,6 +135,36 @@ async def has_permissions(
             )
     return token_data
 
+
+async def get_user(session: AsyncSessionDep, email: str) -> User:
+    """Получение пользователя из БД"""
+    query = select(User).where(User.email == email)
+    user_db = await session.scalar(query)
+    if not user_db:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Пользователь с таким email не найден",
+        )
+    return user_db
+
+
+async def get_current_user(
+    session: AsyncSessionDep,
+    token_data: Annotated[TokenData | None, Depends(has_permissions)] = None,
+):
+    """Получение текущего пользователя по токену"""
+    if not token_data:
+        return None
+    try:
+        user = await get_user(session, email=token_data.email)
+        if not user.is_active:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Пользователь не активирован",
+            )
+        return user
+    except HTTPException:
+        return None
 
 """Basic Auth"""
 # from fastapi.security import HTTPBasic, HTTPBasicCredentials

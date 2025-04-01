@@ -1,6 +1,6 @@
 from datetime import timedelta
 from typing import Annotated
-
+from redis.asyncio import Redis
 from fastapi import Depends, HTTPException, status, APIRouter, Security, Form
 from fastapi.security import (
     OAuth2PasswordRequestForm,
@@ -10,15 +10,8 @@ from fastapi.responses import JSONResponse
 
 from app.auth.permissions import get_role_scopes
 from app.auth.schemas import RegisterUserCreate, RegisterUserPublic, Token
-from app.auth.security import (
-    get_password_hash,
-    create_access_token,
-    ACCESS_TOKEN_EXPIRE_MINUTES,
-    oauth2_scheme,
-    get_blacklist_tokens_redis,
-    authenticate_user,
-    get_current_user,
-)
+from app.auth.security import (get_password_hash, create_access_token, ACCESS_TOKEN_EXPIRE_MINUTES, oauth2_scheme,
+                               get_blacklist_tokens_redis, authenticate_user, get_current_user, is_token_blacklisted, )
 
 from app.db.database import AsyncSessionDep
 from app.db.models.users import User
@@ -119,12 +112,12 @@ async def read_users_me(
 @router.post("/logout", summary="Аннулирование токена")
 async def logout(
     token: Annotated[str, Depends(oauth2_scheme)],
-    redis=Depends(get_blacklist_tokens_redis),
+    redis: Annotated[Redis, Depends(get_blacklist_tokens_redis)],
 ):
     """Аннулирование токена: добавление в чёрный список"""
-    if not token:
+    if not token or await is_token_blacklisted(token, redis):
         raise HTTPException(
-            status_code=400, detail="Токен отсутствует. Вы не вошли в систему"
+            status_code=400, detail="Токен не активен либо отсутствует"
         )
     await redis.setex(f"blacklist:{token}", 3600, "blacklisted")  # TTL 60 минут
     return JSONResponse(status_code=200, content={"message": "Токен аннулирован"})
