@@ -1,7 +1,12 @@
-from fastapi import APIRouter, HTTPException
+from typing import Annotated
+
+import asyncio
+from fastapi import APIRouter, HTTPException, Security
 from fastapi_cache.decorator import cache
 from sqlmodel import select, exists
 
+from app.auth.schemas import TokenData
+from app.auth.security import has_permissions
 from app.shop.schemas.categories import (
     CategoryView,
     CategoryCreate,
@@ -32,8 +37,12 @@ router = APIRouter(
     response_model=list[CategoryView],
 )
 @cache(expire=60)
-async def get_category_list(session: AsyncSessionDep) -> list[CategoryView]:
-    result = await session.execute(select(Category))
+async def get_category_list(
+    _: Annotated[TokenData, Security(has_permissions, scopes=['shop:read'])],
+    session: AsyncSessionDep
+) -> list[CategoryView]:
+    result = await session.execute(select(Category).order_by(Category.id))
+    await asyncio.sleep(3)
     return result.scalars().all()
 
 
@@ -48,7 +57,9 @@ async def get_category_list(session: AsyncSessionDep) -> list[CategoryView]:
     status_code=201,
 )
 async def category_create(
-    category: CategoryCreate, session: AsyncSessionDep
+    _: Annotated[TokenData, Security(has_permissions, scopes=['shop:create'])],
+    session: AsyncSessionDep,
+    category: CategoryCreate,
 ) -> CategoryView:
     is_exists_category = await session.scalar(select(exists().where(Category.title == category.title)))
 
@@ -80,9 +91,11 @@ async def category_create(
     response_model=CategoryView,
 )
 async def category_update(
+    _: Annotated[TokenData, Security(has_permissions, scopes=['shop:update'])],
+    session: AsyncSessionDep,
     cat_id: int,
     category: CategoryUpdate,
-    session: AsyncSessionDep,
+
 ) -> CategoryView:
     category_db = await session.get(Category, cat_id)
     if not category_db:
@@ -124,7 +137,11 @@ async def category_update(
     description="Удаление категории товара",
     response_model=CategoryDelete,
 )
-async def category_delete(cat_id: int, session: AsyncSessionDep) -> CategoryDelete:
+async def category_delete(
+    _: Annotated[TokenData, Security(has_permissions, scopes=['shop:delete'])],
+    session: AsyncSessionDep,
+    cat_id: int,
+) -> CategoryDelete:
     result = await session.execute(select(Category).where(Category.id == cat_id))
     category = result.scalar()
     if not category:

@@ -5,6 +5,9 @@ API интернет-магазина MyBеdding
 Запуск redis (нужен для fastapi-admin, )
 ```shell
 docker run -it --rm --name redis -p 6379:6379 redis
+sudo service redis-server start
+redis-cli
+sudo service redis-server status
 ```
 
 Запуск сервера minio

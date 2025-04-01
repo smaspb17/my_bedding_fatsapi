@@ -14,7 +14,8 @@ from app.db.models.users import User
 class UserAdmin(ModelView, model=User):
     name = "Пользователь"
     name_plural = "Пользователи"
-    column_list = [User.id, User.name]  # Колонки, которые будут отображаться
+    column_list = [User.id, User.email, User.phone_number, User.first_name, User.last_name, User.address, User.is_active]
+    form_excluded_columns = [User.created, User.updated]
     can_create = True
     can_edit = True
     can_delete = False

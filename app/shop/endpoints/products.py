@@ -1,7 +1,9 @@
-import asyncio
-from datetime import timezone, datetime, UTC
+from typing import Annotated
 
-from fastapi import APIRouter, HTTPException, Query
+import asyncio
+from datetime import datetime, UTC
+
+from fastapi import APIRouter, HTTPException, Query, Security
 from fastapi_cache.decorator import cache
 from sqlalchemy.orm import selectinload, joinedload
 from sqlmodel import (
@@ -10,6 +12,8 @@ from sqlmodel import (
     and_,
 )
 
+from app.auth.schemas import TokenData
+from app.auth.security import has_permissions
 from app.shop.schemas.error_schemas import (
     NotFoundErrorSchema,
     BadRequestErrorSchema,
@@ -33,6 +37,7 @@ router = APIRouter(
         400: {"model": BadRequestErrorSchema, "description": "Bad request"},
         404: {"model": NotFoundErrorSchema, "description": "Not Found"},
     },
+    # dependencies=[Depends(security)],
 )
 
 
@@ -44,6 +49,7 @@ router = APIRouter(
 )
 @cache(expire=30)
 async def product_list(
+    _: Annotated[TokenData, Security(has_permissions, scopes=['shop:read'])],
     session: AsyncSessionDep,
     page: int = 1,
     per_page: int = Query(default=5, le=10),
@@ -55,6 +61,7 @@ async def product_list(
         .options(joinedload(Product.images))
         .offset((page - 1) * per_page)
         .limit(per_page)
+        .order_by(Product.id)
     )
     result = await session.execute(stmt)
     products = result.scalars().unique().all()
@@ -70,6 +77,7 @@ async def product_list(
 )
 @cache(expire=60)
 async def product_list_by_cat(
+    _: Annotated[TokenData, Security(has_permissions, scopes=['shop:read'])],
     session: AsyncSessionDep,
     cat_id: int,
     page: int = 1,
@@ -88,6 +96,7 @@ async def product_list_by_cat(
         .where(Product.category_id == cat_id)
         .offset((page - 1) * per_page)
         .limit(per_page)
+        .order_by(Product.id)
     )
     # # ленивая загрузка через relationship -> проблема N+1
     # category = session.get(Category, cat_id)
@@ -105,7 +114,11 @@ async def product_list_by_cat(
     response_model=ProductView,
 )
 @cache(expire=60)
-async def product_detail(product_id: int, session: AsyncSessionDep) -> ProductView:
+async def product_detail(
+    _: Annotated[TokenData, Security(has_permissions, scopes=['shop:read'])],
+    session: AsyncSessionDep,
+    product_id: int,
+) -> ProductView:
     stmt = (
         select(Product)
         .options(selectinload(Product.tags))
@@ -134,7 +147,9 @@ async def product_detail(product_id: int, session: AsyncSessionDep) -> ProductVi
     },
 )
 async def product_create(
-    product: ProductCreate, session: AsyncSessionDep
+    _: Annotated[TokenData, Security(has_permissions, scopes=['shop:create'])],
+    session: AsyncSessionDep,
+    product: ProductCreate,
 ) -> ProductCompactView:
     category_id = product.category_id
     is_exists_category = await session.scalar(
@@ -167,7 +182,10 @@ async def product_create(
     response_model=ProductCompactView,
 )
 async def product_update(
-    product_id: int, product: ProductUpdate, session: AsyncSessionDep
+    _: Annotated[TokenData, Security(has_permissions, scopes=['shop:update'])],
+    session: AsyncSessionDep,
+    product_id: int,
+    product: ProductUpdate,
 ) -> ProductCompactView:
     product_db = await session.get(Product, product_id)
     if not product_db:
@@ -209,8 +227,9 @@ async def product_update(
     response_model=ProductDelete,
 )
 async def product_delete(
-    product_id: int,
+    _: Annotated[TokenData, Security(has_permissions, scopes=['shop:delete'])],
     session: AsyncSessionDep,
+    product_id: int,
 ):
     product = await session.get(Product, product_id)
     if not product:
@@ -229,23 +248,22 @@ async def product_delete(
     response_model=TagResponse,
     status_code=201,
 )
-async def add_tag(product_id: int, tag_id: int, session: AsyncSessionDep):
-    print()
-    print("ПОлучение product")
+async def add_tag(
+    _: Annotated[TokenData, Security(has_permissions, scopes=['shop:create'])],
+    session: AsyncSessionDep,
+    product_id: int,
+    tag_id: int,
+):
     product = await session.get(
         Product, product_id, options=[selectinload(Product.tags)]
     )
-    print()
-    print("Получение тега")
     tag = await session.get(Tag, tag_id)
-    print()
     if not product:
         raise HTTPException(
             status_code=400, detail=f"Product with id={product_id} not found"
         )
     if not tag:
         raise HTTPException(status_code=400, detail=f"Tag with id={tag_id} not found")
-    print("Есть ли уже такая же связь")
     is_exists = await session.scalar(
         select(
             exists().where(
@@ -253,7 +271,6 @@ async def add_tag(product_id: int, tag_id: int, session: AsyncSessionDep):
             )
         )
     )
-    print()
     if is_exists:
         raise HTTPException(
             status_code=400, detail="Tag is already assigned to this product"
@@ -277,12 +294,15 @@ async def add_tag(product_id: int, tag_id: int, session: AsyncSessionDep):
     response_model=TagResponse,
     status_code=200,
 )
-async def delete_tag(product_id: int, tag_id: int, session: AsyncSessionDep):
+async def delete_tag(
+    _: Annotated[TokenData, Security(has_permissions, scopes=['shop:delete'])],
+    session: AsyncSessionDep,
+    product_id: int,
+    tag_id: int,
+):
     stmt = select(ProductTagJoin).where(
         and_(ProductTagJoin.product_id == product_id, ProductTagJoin.tag_id == tag_id)
     )
-    print()
-    print("проверка наличия связи")
     result = await session.execute(stmt)
     product_tag = result.scalar()
     if not product_tag:
@@ -290,18 +310,12 @@ async def delete_tag(product_id: int, tag_id: int, session: AsyncSessionDep):
             status_code=404, detail="Tag is not assigned to this product"
         )
     # product.tags.remove(tag)  # N+1 если нет lazy="joined"
-    print()
     await session.delete(product_tag)
-    print("Удаление связи")
     await session.commit()
-    print()
-    print("Жадная хитрая загрузка тегов")
     product = await session.get(
         Product, product_id, options=[selectinload(Product.tags)]
     )  # N+1 ленивая
     # загрузка
-    print()
-    print("Вывод результатов")
     return {
         "message": "Tag deleted successfully",
         "product_id": product_id,

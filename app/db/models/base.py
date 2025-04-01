@@ -4,11 +4,11 @@ from typing import Annotated
 from sqlalchemy import String, text, TIMESTAMP
 from sqlalchemy.orm import DeclarativeBase, mapped_column
 
-str_256 = Annotated[str, 256]
+str_255 = Annotated[str, 255]
 
 
 class Base(DeclarativeBase):
-    type_annotation_map = {str_256: String(256)}
+    type_annotation_map = {str_255: String(255)}
 
     def __repr__(self):
         cols = []

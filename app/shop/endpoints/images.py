@@ -1,3 +1,5 @@
+from typing import Annotated
+
 import asyncio
 import os
 import time
@@ -7,12 +9,14 @@ from pathlib import Path
 import aiofiles
 from aiohttp import ClientError
 
-from fastapi import UploadFile, File, HTTPException, APIRouter
+from fastapi import UploadFile, File, HTTPException, APIRouter, Security
 from fastapi_cache.decorator import cache
 from markdown_it.rules_inline import image
 from sqlalchemy import select, exists, delete, and_
 from sqlalchemy.orm import joinedload
 
+from app.auth.schemas import TokenData
+from app.auth.security import has_permissions
 from app.core.config import settings
 from app.db.database import AsyncSessionDep
 from app.db.models.shop import ProductImage, Product
@@ -41,6 +45,7 @@ BASE_FOLDER = Path(__file__).parent.parent.parent.parent / "media/products"
 )
 @cache(expire=60)
 async def download_product_images(
+    _: Annotated[TokenData, Security(has_permissions, scopes=['shop:read'])],
     session: AsyncSessionDep,
     product_id: int,
 ) -> list[ImageView]:
@@ -53,7 +58,7 @@ async def download_product_images(
     product = result.scalar()
     if not product:
         raise HTTPException(status_code=404, detail="Product not found")
-
+    await asyncio.sleep(3)
     return [ImageView.model_validate(image) for image in product.images]
 
 
@@ -63,6 +68,7 @@ async def download_product_images(
     description="Добавить изображения к товару",
 )
 async def upload_product_images(
+    _: Annotated[TokenData, Security(has_permissions, scopes=['shop:create'])],
     session: AsyncSessionDep,
     product_id: int,
     files: list[UploadFile],
@@ -131,6 +137,7 @@ async def upload_product_images(
     description="Удаляет все изображения конкретного товара",
 )
 async def delete_all_product_images(
+    _: Annotated[TokenData, Security(has_permissions, scopes=['shop:delete'])],
     session: AsyncSessionDep,
     product_id: int,
 ):
@@ -178,6 +185,7 @@ async def delete_all_product_images(
     description="Удаляет конкретное изображение товара по ID",
 )
 async def delete_one_product_image(
+    _: Annotated[TokenData, Security(has_permissions, scopes=['shop:delete'])],
     session: AsyncSessionDep,
     product_id: int,
     image_id: int,

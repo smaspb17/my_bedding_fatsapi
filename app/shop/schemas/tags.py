@@ -10,7 +10,6 @@ class TagView(TagBase):
 
     class Config:
         # для создания объекта схемы из объекта модели БД
-        # orm_mode = True
         from_attributes = True
 
 
