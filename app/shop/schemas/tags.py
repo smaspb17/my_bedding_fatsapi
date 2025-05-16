@@ -19,3 +19,12 @@ class TagCreate(TagBase):
 
 class TagUpdate(TagBase):
     name: str | None = None
+
+
+class ProductTagJoinView(BaseModel):
+    product_id: int
+    tag_id: int
+
+    class Config:
+        # для создания объекта схемы из объекта модели БД
+        from_attributes = True

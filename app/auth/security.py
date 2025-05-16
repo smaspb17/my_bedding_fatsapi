@@ -30,25 +30,27 @@ oauth2_scheme = OAuth2PasswordBearer(
     #     "product:delete": "Удаление данных",
     # },
 )
-
-# Клиент для чёрного списка токенов
+# Хэширование паролей
+# CryptContext - это объект-контекст из библиотеки passlib,
+# который предоставляет интерфейс для хеширования паролей.
+# schemes=["bcrypt"] - указывает использовать алгоритм bcrypt для хеширования
+# deprecated="auto" - автоматически обрабатывает устаревшие схемы хеширования
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-blacklist_tokens_redis = None
+# Клиент для чёрного списка токенов
+blacklist_tokens_redis_client = None
 
 
-async def get_blacklist_tokens_redis():
-    global blacklist_tokens_redis
-    if blacklist_tokens_redis is None:
-        blacklist_tokens_redis = await aioredis.from_url(
+async def get_blacklist_tokens_redis_client():
+    """Получение клиента для чёрного списка токенов"""
+    global blacklist_tokens_redis_client
+    if blacklist_tokens_redis_client is None:
+        blacklist_tokens_redis_client = await aioredis.from_url(
             settings.REDIS_URL, decode_responses=True
         )
-    return blacklist_tokens_redis
+    return blacklist_tokens_redis_client
 
 
-async def is_token_blacklisted(
-        token: str,
-        redis: Annotated[Redis, Depends(get_blacklist_tokens_redis)]
-):
+async def is_token_blacklisted(token: str, redis: Redis):
     """Проверка, есть ли токен в чёрном списке"""
     return await redis.exists(f"blacklist:{token}")
 
@@ -82,7 +84,9 @@ def decode_token(token: str):
     return payload
 
 
-async def authenticate_user(session: AsyncSessionDep, email: str, password: str):
+async def authenticate_user(
+    session: AsyncSessionDep, email: str, password: str
+):
     """Аутентификация пользователя"""
     user = await get_user(session, email)
     if not user:
@@ -94,11 +98,10 @@ async def authenticate_user(session: AsyncSessionDep, email: str, password: str)
 
 async def has_permissions(
     security_scopes: SecurityScopes,
-    # token: Annotated[str, Depends(oauth2_scheme)],
+    redis: Annotated[Redis, Depends(get_blacklist_tokens_redis_client)],
     token: Annotated[str | None, Depends(oauth2_scheme)] = None,
-    redis=Depends(get_blacklist_tokens_redis),
 ):
-    print(f"{security_scopes.scopes=}")
+    """Проверка прав доступа"""
     if security_scopes.scopes:
         authenticate_value = f'Bearer scope="{security_scopes.scope_str}"'
     else:
@@ -119,7 +122,6 @@ async def has_permissions(
             token_scopes = payload.get("scopes")
             token_data = TokenData(scopes=token_scopes, email=email)
             user_scopes = token_data.scopes
-            print(f"{token_data.scopes=}")
         except (InvalidTokenError, ValidationError) as err:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
@@ -153,6 +155,9 @@ async def get_current_user(
     token_data: Annotated[TokenData | None, Depends(has_permissions)] = None,
 ):
     """Получение текущего пользователя по токену"""
+    print()
+    print(f"{token_data=}")
+    print()
     if not token_data:
         return None
     try:
@@ -165,6 +170,7 @@ async def get_current_user(
         return user
     except HTTPException:
         return None
+
 
 """Basic Auth"""
 # from fastapi.security import HTTPBasic, HTTPBasicCredentials

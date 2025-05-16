@@ -1,21 +1,33 @@
-from typing import Annotated
+import logging
+from typing import Annotated, AsyncGenerator
 
 from fastapi import Depends
 from sqlmodel import SQLModel
-from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy.ext.asyncio import (
+    AsyncSession,
+    create_async_engine,
+    async_sessionmaker,
+)
 
 from app.core.config import settings
 from app.db.models.base import Base
 
+logger = logging.getLogger(__name__)
 
 # Создаём асинхронный движок
-engine = create_async_engine(settings.DATABASE_URL_asyncpg, echo=True)
+engine = create_async_engine(
+    settings.DATABASE_URL_asyncpg,
+    echo=False,
+    pool_size=10,           # базовый размер пула
+    max_overflow=20,        # дополнительные соединения при нагрузке
+    pool_timeout=30,        # время ожидания (сек)
+    pool_recycle=3600,      # пересоздавать соединения каждые 3600 сек (1 час)
+)
 
 
 # Создаём фабрику сессий. Отменены отсоединение объектов
 # и новые запросы к базе данных после каждого .commit()
-async_session_maker = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+async_session_maker = async_sessionmaker(bind=engine, expire_on_commit=False)
 
 
 # Функция для создания базы данных и таблиц
@@ -30,9 +42,9 @@ async def create_db_and_tables():
 
 
 # Асинхронный генератор сессий для зависимостей FastAPI
-async def get_session() -> AsyncSession:
+async def get_session() -> AsyncGenerator[AsyncSession, None]:
     async with async_session_maker() as session:
-        print(f"Создана сессия {session}")
+        # logger.info(f"Создана сессия {session}")
         yield session
 
 

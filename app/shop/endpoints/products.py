@@ -1,6 +1,5 @@
 from typing import Annotated
 
-import asyncio
 from datetime import datetime, UTC
 
 from fastapi import APIRouter, HTTPException, Query, Security
@@ -29,6 +28,7 @@ from app.shop.schemas.products import (
 from app.db.database import AsyncSessionDep
 from app.db.models.shop import Product, Category, Tag, ProductTagJoin
 from app.shop.schemas.tags import TagView
+from app.core.config import settings
 
 router = APIRouter(
     prefix="/product",
@@ -47,9 +47,9 @@ router = APIRouter(
     description="Получение списка всех товаров",
     response_model=list[ProductView],
 )
-@cache(expire=30)
+@cache(expire=settings.CACHE_TIME)
 async def product_list(
-    _: Annotated[TokenData, Security(has_permissions, scopes=['shop:read'])],
+    _: Annotated[TokenData, Security(has_permissions, scopes=["shop:read"])],
     session: AsyncSessionDep,
     page: int = 1,
     per_page: int = Query(default=5, le=10),
@@ -65,7 +65,7 @@ async def product_list(
     )
     result = await session.execute(stmt)
     products = result.scalars().unique().all()
-    await asyncio.sleep(3)
+    # await asyncio.sleep(3)
     return [ProductView.model_validate(product) for product in products]
 
 
@@ -75,9 +75,9 @@ async def product_list(
     description="Получение списка товаров по выбранной категориям",
     response_model=list[ProductView],
 )
-@cache(expire=60)
+@cache(expire=settings.CACHE_TIME)
 async def product_list_by_cat(
-    _: Annotated[TokenData, Security(has_permissions, scopes=['shop:read'])],
+    _: Annotated[TokenData, Security(has_permissions, scopes=["shop:read"])],
     session: AsyncSessionDep,
     cat_id: int,
     page: int = 1,
@@ -103,7 +103,7 @@ async def product_list_by_cat(
     # products = category.products
     result = await session.execute(stmt)
     products = result.scalars().unique().all()
-    await asyncio.sleep(3)
+    # await asyncio.sleep(3)
     return [ProductView.model_validate(product) for product in products]
 
 
@@ -113,9 +113,9 @@ async def product_list_by_cat(
     description="Получение товара",
     response_model=ProductView,
 )
-@cache(expire=60)
+@cache(expire=settings.CACHE_TIME)
 async def product_detail(
-    _: Annotated[TokenData, Security(has_permissions, scopes=['shop:read'])],
+    _: Annotated[TokenData, Security(has_permissions, scopes=["shop:read"])],
     session: AsyncSessionDep,
     product_id: int,
 ) -> ProductView:
@@ -132,7 +132,7 @@ async def product_detail(
         raise HTTPException(
             status_code=404, detail=f"product with id={product_id} not found"
         )
-    await asyncio.sleep(3)
+    # await asyncio.sleep(3)
     return ProductView.model_validate(product)
 
 
@@ -143,11 +143,14 @@ async def product_detail(
     response_model=ProductCompactView,
     status_code=201,
     responses={
-        201: {"model": ProductCompactView, "description": "Product successfully created"},
+        201: {
+            "model": ProductCompactView,
+            "description": "Product successfully created",
+        },
     },
 )
 async def product_create(
-    _: Annotated[TokenData, Security(has_permissions, scopes=['shop:create'])],
+    _: Annotated[TokenData, Security(has_permissions, scopes=["shop:create"])],
     session: AsyncSessionDep,
     product: ProductCreate,
 ) -> ProductCompactView:
@@ -182,7 +185,7 @@ async def product_create(
     response_model=ProductCompactView,
 )
 async def product_update(
-    _: Annotated[TokenData, Security(has_permissions, scopes=['shop:update'])],
+    _: Annotated[TokenData, Security(has_permissions, scopes=["shop:update"])],
     session: AsyncSessionDep,
     product_id: int,
     product: ProductUpdate,
@@ -195,7 +198,11 @@ async def product_update(
             f"again.",
         )
     is_exists = await session.scalar(
-        select(exists().where(Product.title == product.title, Product.id != product_id))
+        select(
+            exists().where(
+                Product.title == product.title, Product.id != product_id
+            )
+        )
     )
     if is_exists:
         raise HTTPException(
@@ -227,7 +234,7 @@ async def product_update(
     response_model=ProductDelete,
 )
 async def product_delete(
-    _: Annotated[TokenData, Security(has_permissions, scopes=['shop:delete'])],
+    _: Annotated[TokenData, Security(has_permissions, scopes=["shop:delete"])],
     session: AsyncSessionDep,
     product_id: int,
 ):
@@ -238,7 +245,9 @@ async def product_delete(
         )
     await session.delete(product)
     await session.commit()
-    return ProductDelete(product_id=product.id, message="Product deleted successfully")
+    return ProductDelete(
+        product_id=product.id, message="Product deleted successfully"
+    )
 
 
 @router.post(
@@ -249,7 +258,7 @@ async def product_delete(
     status_code=201,
 )
 async def add_tag(
-    _: Annotated[TokenData, Security(has_permissions, scopes=['shop:create'])],
+    _: Annotated[TokenData, Security(has_permissions, scopes=["shop:create"])],
     session: AsyncSessionDep,
     product_id: int,
     tag_id: int,
@@ -263,11 +272,14 @@ async def add_tag(
             status_code=400, detail=f"Product with id={product_id} not found"
         )
     if not tag:
-        raise HTTPException(status_code=400, detail=f"Tag with id={tag_id} not found")
+        raise HTTPException(
+            status_code=400, detail=f"Tag with id={tag_id} not found"
+        )
     is_exists = await session.scalar(
         select(
             exists().where(
-                ProductTagJoin.product_id == product_id, ProductTagJoin.tag_id == tag_id
+                ProductTagJoin.product_id == product_id,
+                ProductTagJoin.tag_id == tag_id,
             )
         )
     )
@@ -295,13 +307,16 @@ async def add_tag(
     status_code=200,
 )
 async def delete_tag(
-    _: Annotated[TokenData, Security(has_permissions, scopes=['shop:delete'])],
+    _: Annotated[TokenData, Security(has_permissions, scopes=["shop:delete"])],
     session: AsyncSessionDep,
     product_id: int,
     tag_id: int,
 ):
     stmt = select(ProductTagJoin).where(
-        and_(ProductTagJoin.product_id == product_id, ProductTagJoin.tag_id == tag_id)
+        and_(
+            ProductTagJoin.product_id == product_id,
+            ProductTagJoin.tag_id == tag_id,
+        )
     )
     result = await session.execute(stmt)
     product_tag = result.scalar()

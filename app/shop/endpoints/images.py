@@ -58,7 +58,7 @@ async def download_product_images(
     product = result.scalar()
     if not product:
         raise HTTPException(status_code=404, detail="Product not found")
-    await asyncio.sleep(3)
+    # await asyncio.sleep(3)
     return [ImageView.model_validate(image) for image in product.images]
 
 

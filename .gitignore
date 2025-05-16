@@ -173,5 +173,11 @@ cython_debug/
 /app/core/security.py
 /database.db
 /app/core/config.py
-/migrations/versions/
+migrations/versions/*
+!migrations/versions/.gitkeep
 /media/
+rabbitmq_testing/config.py
+/.vscode/
+
+/D:/Интернет-магазин/FastAPI/fixtures/
+/C:/Users/marat/Desktop/some/fixtures/

@@ -37,3 +37,8 @@ updated_at = Annotated[
         onupdate=lambda: datetime.now(UTC),
     ),
 ]
+
+DatetimeTZ = Annotated[
+    datetime,
+    mapped_column(TIMESTAMP(timezone=True)),
+]

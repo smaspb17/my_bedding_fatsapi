@@ -1,6 +1,6 @@
+import asyncio
 from typing import Annotated
 
-import asyncio
 from fastapi import APIRouter, HTTPException, Security
 from fastapi_cache.decorator import cache
 from sqlmodel import select, exists
@@ -19,6 +19,7 @@ from app.shop.schemas.error_schemas import (
 )
 from app.db.database import AsyncSessionDep
 from app.db.models.shop import Category
+from app.core.config import settings
 
 router = APIRouter(
     prefix="/catalog",
@@ -36,14 +37,15 @@ router = APIRouter(
     description="Получение списка категорий товаров",
     response_model=list[CategoryView],
 )
-@cache(expire=60)
+@cache(expire=settings.CACHE_TIME)
 async def get_category_list(
-    _: Annotated[TokenData, Security(has_permissions, scopes=['shop:read'])],
-    session: AsyncSessionDep
+    _: Annotated[TokenData, Security(has_permissions, scopes=["shop:read"])],
+    session: AsyncSessionDep,
 ) -> list[CategoryView]:
     result = await session.execute(select(Category).order_by(Category.id))
     await asyncio.sleep(3)
-    return result.scalars().all()
+    categories = result.scalars().all()
+    return [CategoryView.model_validate(category) for category in categories]
 
 
 @router.post(
@@ -52,16 +54,21 @@ async def get_category_list(
     description="Создание категории товаров",
     response_model=CategoryView,
     responses={
-        201: {"description": "Category successfully created", "model": CategoryView},
+        201: {
+            "description": "Category successfully created",
+            "model": CategoryView,
+        },
     },
     status_code=201,
 )
 async def category_create(
-    _: Annotated[TokenData, Security(has_permissions, scopes=['shop:create'])],
+    _: Annotated[TokenData, Security(has_permissions, scopes=["shop:create"])],
     session: AsyncSessionDep,
     category: CategoryCreate,
 ) -> CategoryView:
-    is_exists_category = await session.scalar(select(exists().where(Category.title == category.title)))
+    is_exists_category = await session.scalar(
+        select(exists().where(Category.title == category.title))
+    )
 
     # stmt = select(exists().where(Category.title == category.title))
     # result = await session.execute(stmt)
@@ -91,11 +98,10 @@ async def category_create(
     response_model=CategoryView,
 )
 async def category_update(
-    _: Annotated[TokenData, Security(has_permissions, scopes=['shop:update'])],
+    _: Annotated[TokenData, Security(has_permissions, scopes=["shop:update"])],
     session: AsyncSessionDep,
     cat_id: int,
     category: CategoryUpdate,
-
 ) -> CategoryView:
     category_db = await session.get(Category, cat_id)
     if not category_db:
@@ -111,7 +117,9 @@ async def category_update(
     # is_exists = result.scalars().first()
     is_exists = await session.scalar(
         select(
-            exists().where(Category.title == category.title, Category.id != cat_id)
+            exists().where(
+                Category.title == category.title, Category.id != cat_id
+            )
         )
     )
     if is_exists:
@@ -138,11 +146,13 @@ async def category_update(
     response_model=CategoryDelete,
 )
 async def category_delete(
-    _: Annotated[TokenData, Security(has_permissions, scopes=['shop:delete'])],
+    _: Annotated[TokenData, Security(has_permissions, scopes=["shop:delete"])],
     session: AsyncSessionDep,
     cat_id: int,
 ) -> CategoryDelete:
-    result = await session.execute(select(Category).where(Category.id == cat_id))
+    result = await session.execute(
+        select(Category).where(Category.id == cat_id)
+    )
     category = result.scalar()
     if not category:
         raise HTTPException(

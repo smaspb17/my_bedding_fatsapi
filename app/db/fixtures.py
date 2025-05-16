@@ -7,17 +7,21 @@ from enum import Enum
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import JSONResponse
 from sqlalchemy import text, delete
-from sqlalchemy.orm import DeclarativeBase
+from sqlalchemy.orm import DeclarativeBase, selectinload, joinedload
 from sqlalchemy.exc import IntegrityError
 from sqlmodel import SQLModel, Session, select
 from app.db.database import get_session, AsyncSessionDep
+from app.db.models.shop import Tag, ProductImage
+from app.shop.schemas.categories import CategoryView
+from app.shop.schemas.products import ProductView
+from app.shop.schemas.tags import TagView, ProductTagJoinView
 
 router = APIRouter(
     prefix="/fixtures",
     tags=["Фикстуры"],
 )
 
-EXPORT_PATH = Path(r"D:\Интернет-магазин\FastAPI\fixtures")
+EXPORT_PATH = Path("/mnt/c/Users/marat/Desktop/some/fixtures")
 EXPORT_PATH.mkdir(parents=True, exist_ok=True)  # Создаём папку, если её нет
 
 # Список моделей в указанных файлах
@@ -74,6 +78,13 @@ ModelNameEnum = Enum(
     "ModelNameEnum", {name.upper(): name for name in CACHED_MODELS.keys()}
 )
 
+SCHEMAS = {
+    'category': CategoryView,
+    'tag': TagView,
+    'producttagjoin': ProductTagJoinView,
+    'product': ProductView
+}
+
 
 @router.get(
     "/export/{model_name}",
@@ -87,20 +98,36 @@ async def export_data(model_name: ModelNameEnum, session: AsyncSessionDep):
     - Модели в выпадающий список добавляются автоматически.
     """
     model_db = CACHED_MODELS.get(model_name.value)
+    schema = SCHEMAS.get(model_name.value)
     if not model_db:
         raise HTTPException(status_code=400, detail="Модель не найдена")
 
-    result = await session.execute(select(model_db))
-    objects = result.scalars.all()
+    if model_name.value == 'product':
+        query = (
+        select(model_db)
+            .options(selectinload(model_db.tags))
+            .options(joinedload(model_db.images))
+    )
+    else:
+        query = select(model_db)
+    result = await session.execute(query)
+    objects = result.scalars().unique().all()
 
     file_path = EXPORT_PATH / f"{model_name.value}.json"
-    with file_path.open("w", encoding="utf-8") as f:
-        json.dump(
-            {model_name.value: [obj.model_dump(mode="json") for obj in objects]},
-            f,
-            ensure_ascii=False,
-            indent=2,
-        )
+    try:
+        with file_path.open("w", encoding="utf-8") as f:
+            json.dump(
+                {model_name.value: [schema.model_validate(obj).model_dump(mode="json") for obj in objects]},
+                f,
+                ensure_ascii=False,
+                indent=2,
+            )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f'Ошибка выгрузки фикстур в файл: {e}')
+
+    print(f"Путь файла: {file_path}")
+    print(f"Существует ли папка? {EXPORT_PATH.exists()}")
+    print(f"Текущая рабочая директория: {Path.cwd()}")
 
     return {"message": f"Данные успешно выгружены в {file_path}"}
 
@@ -136,6 +163,7 @@ async def import_data(model_name: ModelNameEnum, session: AsyncSessionDep):
         )
         # await session.execute(delete(model_db))
         await session.commit()
+        print(f"Таблица {model_db.__tablename__} очищена")
     except Exception as e:
         await session.rollback()
         raise HTTPException(
@@ -144,14 +172,39 @@ async def import_data(model_name: ModelNameEnum, session: AsyncSessionDep):
 
     def parse_datetime(item):
         if "created" in item:
-            item["created"] = datetime.fromisoformat(item["created"])
+            item["created"] = datetime.strptime(item["created"], "%d.%m.%Y %H:%M:%S")
         if "updated" in item:
-            item["updated"] = datetime.fromisoformat(item["updated"])
+            item["updated"] = datetime.strptime(item["updated"], "%d.%m.%Y %H:%M:%S")
         return item
 
-    objects = [
-        model_db(**parse_datetime(item)) for item in data.get(model_name.value, [])
-    ]
+    # Специальная обработка для Product
+    if model_name.value == "product":
+        objects = []
+        for item in data.get(model_name.value, []):
+            # Создаем базовый объект Product без связей
+            product_data = {k: v for k, v in parse_datetime(item).items()
+                            if k not in ["tags", "images"]}
+            product = model_db(**product_data)
+
+            # Добавляем связи отдельно
+            if "tags" in item:
+                # Получаем существующие теги из БД
+                tag_ids = [tag["id"] for tag in item["tags"]]
+                tags = await session.execute(
+                    select(Tag).where(Tag.id.in_(tag_ids))
+                )
+                product.tags = tags.scalars().all()
+
+            if "images" in item:
+                # Создаем объекты изображений
+                images = [ProductImage(**img) for img in item["images"]]
+                product.images = images
+
+            objects.append(product)
+    else:
+        objects = [
+            model_db(**parse_datetime(item)) for item in data.get(model_name.value, [])
+        ]
 
     try:
         session.add_all(objects)

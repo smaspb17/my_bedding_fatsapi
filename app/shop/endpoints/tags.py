@@ -14,6 +14,7 @@ from app.shop.schemas.error_schemas import (
 from app.shop.schemas.tags import TagView, TagCreate, TagUpdate
 from app.db.database import AsyncSessionDep
 from app.db.models.shop import Tag
+from app.core.config import settings
 
 router = APIRouter(
     prefix="/tags",
@@ -31,15 +32,15 @@ router = APIRouter(
     description="Получение списка тегов",
     response_model=list[TagView],
 )
-@cache(expire=60)
-async def tag_create(
-    _: Annotated[TokenData, Security(has_permissions, scopes=['shop:read'])],
+@cache(expire=settings.CACHE_TIME)
+async def tag_list(
+    _: Annotated[TokenData, Security(has_permissions, scopes=["shop:read"])],
     session: AsyncSessionDep,
 ) -> list[TagView]:
     result = await session.execute(select(Tag).order_by(Tag.id))
     tags = result.scalars().all()
-    await asyncio.sleep(3)
-    return tags
+    # await asyncio.sleep(3)
+    return [TagView.model_validate(tag) for tag in tags]
 
 
 @router.post(
@@ -50,14 +51,15 @@ async def tag_create(
     status_code=201,
 )
 async def tag_create(
-    _: Annotated[TokenData, Security(has_permissions, scopes=['shop:create'])],
+    _: Annotated[TokenData, Security(has_permissions, scopes=["shop:create"])],
     session: AsyncSessionDep,
     tag: TagCreate,
-
 ) -> TagView:
     # stmt = select(exists().where(Tag.name == tag.name))
     # is_exists = session.exec(stmt).first()
-    is_exists = await session.scalar(select(exists().where(Tag.name == tag.name)))
+    is_exists = await session.scalar(
+        select(exists().where(Tag.name == tag.name))
+    )
     if is_exists:
         raise HTTPException(
             status_code=404,
@@ -78,11 +80,10 @@ async def tag_create(
     response_model=TagView,
 )
 async def tag_update(
-    _: Annotated[TokenData, Security(has_permissions, scopes=['shop:update'])],
+    _: Annotated[TokenData, Security(has_permissions, scopes=["shop:update"])],
     session: AsyncSessionDep,
     tag_id: int,
     tag: TagUpdate,
-
 ) -> TagView:
     tag_db = await session.get(Tag, tag_id)
     if not tag_db:
@@ -90,7 +91,9 @@ async def tag_update(
             status_code=404,
             detail=f"Tag with id={tag_id} not found. Please check the tag ID and try again.",
         )
-    is_exists = await session.scalar(select(exists().where(Tag.name == tag.name, Tag.id != tag_id)))
+    is_exists = await session.scalar(
+        select(exists().where(Tag.name == tag.name, Tag.id != tag_id))
+    )
     if is_exists:
         raise HTTPException(
             status_code=404,
@@ -115,10 +118,9 @@ async def tag_update(
     response_model=TagView,
 )
 async def tag_delete(
-    _: Annotated[TokenData, Security(has_permissions, scopes=['shop:delete'])],
+    _: Annotated[TokenData, Security(has_permissions, scopes=["shop:delete"])],
     session: AsyncSessionDep,
     tag_id: int,
-
 ) -> TagView:
     tag = await session.get(Tag, tag_id)
     if not tag:
@@ -129,6 +131,3 @@ async def tag_delete(
     await session.delete(tag)
     await session.commit()
     return TagView.model_validate(tag)
-
-
-

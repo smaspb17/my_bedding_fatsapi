@@ -1,28 +1,29 @@
+# main.py
 from typing import Annotated
-
-import asyncio
+import logging
 import time
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Depends
+from fastapi import FastAPI, Depends, Request
 from enum import Enum
 
 from fastapi.exceptions import RequestValidationError
 
-from app import auth
 from app.auth.endpoints import get_current_user, User
-# from app.auth.security import AuthCredsDep
-from app.auth.security import oauth2_scheme
+
 from app.core.config import settings
 
+
 from app.shop.endpoints import categories, products, tags, images
+from app.auth.endpoints import router as auth_router
 from app.db import fixtures
 from app.core.handlers import (
     custom_request_validation_exception_handler,
 )
-from app.db.database import create_db_and_tables, engine
+from app.db.database import engine
 from app.admin.admin_config import init_admin
+
 
 # импорты кэширования
 from fastapi_cache import FastAPICache
@@ -30,23 +31,22 @@ from fastapi_cache.backends.redis import RedisBackend
 from fastapi_cache.decorator import cache
 
 from redis import asyncio as aioredis
-# import logging
-#
-# logging.basicConfig(level=logging.DEBUG)
 
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
-    # await create_db_and_tables()  # НЕ НУЖЕН, использую alembic
-    # Клиент для кеширования
+    from app.logging.logger import configure_logging
+
+    configure_logging()
+    logger.info("Logging configuration completed")
+    # Инициализация логирования (первая строка!)
     cache_redis = aioredis.from_url(settings.REDIS_URL)  # Подключение к Redis
-    # Инициализация кэша
-    FastAPICache.init(RedisBackend(cache_redis), prefix="fastapi-cache")  # Инициализация кэша
-    # init админки
+    FastAPICache.init(RedisBackend(cache_redis), prefix="fastapi-cache")
+    logger.info("Redis cache initialized")
+
     init_admin(_app, engine)
-    # Передаем Redis клиент в зависимости
+    logger.info("Admin initialization completed")
     yield
-    # Закрываем соединения при завершении
     await cache_redis.close()
 
 
@@ -64,10 +64,25 @@ app.include_router(products.router)
 app.include_router(fixtures.router)
 app.include_router(tags.router)
 app.include_router(images.router)
-app.include_router(auth.endpoints.router)
+# app.include_router(users.router)
+app.include_router(auth_router)
 app.add_exception_handler(
     RequestValidationError, custom_request_validation_exception_handler
 )
+
+
+logger = logging.getLogger(__name__)
+
+
+@app.middleware("http")
+async def log_requests(request: Request, call_next):
+    start_time = time.perf_counter()
+    response = await call_next(request)
+    process_time = time.perf_counter() - start_time
+    logger.info(
+        f"Время выполнения запроса {request.url.path}: {process_time:.4f} сек."
+    )
+    return response
 
 
 class Tags(Enum):
@@ -86,8 +101,8 @@ class Tags(Enum):
 )
 @cache(expire=10)
 async def home(
-        # credentials: AuthCredsDep,
-        current_user: Annotated[User, Depends(get_current_user)]
+    # credentials: AuthCredsDep,
+    current_user: Annotated[User, Depends(get_current_user)],
 ):
     # """
     # Create an item with all the information:
@@ -97,9 +112,5 @@ async def home(
     # - **tax**: if the item doesn't have tax, you can omit this
     # - **tags**: a set of unique tag strings for this item
     # """
-    start = time.perf_counter()
-    await asyncio.sleep(3)
-    end = time.perf_counter()
-    diff_time = end - start
-    print(f"{diff_time:.2f}")
+    logger.info("Вызов главной страницы")
     return {"message": "Это главная страница"}

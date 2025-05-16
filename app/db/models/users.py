@@ -1,15 +1,12 @@
-from enum import Enum as PyEnum
 from sqlalchemy import Enum
-import re
-from datetime import datetime, UTC, timezone
-from typing import Annotated, get_args
+from datetime import datetime
 
 from passlib.handlers.bcrypt import bcrypt
 from pydantic import field_validator
-from sqlalchemy import Integer, ForeignKey, func, text, BigInteger, String
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy import BigInteger, String
+from sqlalchemy.orm import Mapped, mapped_column
 
-from .base import Base, created_at, updated_at, int_pk
+from .base import Base, DatetimeTZ, created_at, updated_at, int_pk
 from ...auth.schemas import RoleEnum
 
 
@@ -19,7 +16,20 @@ class User(Base):
     id: Mapped[int_pk]
     first_name: Mapped[str | None] = mapped_column(String(100), nullable=True)
     last_name: Mapped[str | None] = mapped_column(String(100), nullable=True)
-    email: Mapped[str] = mapped_column(String(255), unique=True, index=True)
+    email: Mapped[str] = mapped_column(String(255), unique=False, index=True)
+    is_email_confirmed: Mapped[bool | None] = mapped_column(default=False)
+    email_confirm_token: Mapped[str | None] = mapped_column(
+        String(64), nullable=True
+    )
+    email_confirm_time: Mapped[created_at | None] = mapped_column(
+        nullable=True
+    )
+    password_reset_token: Mapped[str | None] = mapped_column(
+        String(64), nullable=True
+    )
+    password_reset_time: Mapped[DatetimeTZ | None] = mapped_column(
+        nullable=True
+    )
     phone_number: Mapped[str] = mapped_column(String(12), index=True)
     address: Mapped[str | None] = mapped_column(String(255), nullable=True)
     photo: Mapped[str | None] = mapped_column(nullable=True)
@@ -30,13 +40,17 @@ class User(Base):
     updated: Mapped[updated_at]
     hashed_password: Mapped[str | None] = mapped_column(nullable=True)
     # role: Mapped[RoleEnum] = mapped_column(Enum(RoleEnum, create_type=True), nullable=False, default=RoleEnum.BUYER)
-    role: Mapped[RoleEnum] = mapped_column(Enum(RoleEnum, create_type=True), nullable=False, default=RoleEnum.BUYER)
+    role: Mapped[RoleEnum] = mapped_column(
+        Enum(RoleEnum, create_type=True),
+        nullable=False,
+        default=RoleEnum.BUYER,
+    )
 
-    @field_validator('hashed_password')
+    @field_validator("hashed_password")
     def validate_hashed_password(cls, value):
         # Проверка, что хэш соответствует ожидаемому формату bcrypt
         if not bcrypt.identify(value):
-            raise ValueError('Invalid hashed password format')
+            raise ValueError("Invalid hashed password format")
         return value
 
 
@@ -73,5 +87,3 @@ class User(Base):
 #         ForeignKey('group.id'), primary_key=True)
 #     permission_id: Mapped[int] = mapped_column(
 #         ForeignKey('permission.id'), primary_key=True)
-
-

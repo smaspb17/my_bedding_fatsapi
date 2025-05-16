@@ -13,6 +13,9 @@ class CategoryCreate(CategoryBase):
 class CategoryView(CategoryBase):
     id: int
 
+    class Config:
+        from_attributes = True
+
 
 class CategoryDelete(BaseModel):
     id: int = Field(json_schema_extra={'example': '1'})

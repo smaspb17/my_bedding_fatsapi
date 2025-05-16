@@ -37,6 +37,9 @@ class ProductView(ProductCompactView):
     tags: list["TagView"]
     images: list["ImageView"]
 
+    class Config:
+        from_attributes = True
+
 
 class ProductCreate(ProductBase):
     pass
